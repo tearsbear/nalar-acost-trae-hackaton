@@ -1,16 +1,17 @@
 "use client"
 
-import { useState } from "react"
-import { Copy, Check, Trash2, Plus, Eye, EyeOff, Download, FileText, ExternalLink } from "lucide-react"
-import { mockApiKeys } from "@/lib/mock-data"
+import { useState, useEffect } from "react"
+import { Copy, Check, Trash2, Plus, Eye, EyeOff, Download, FileText, ExternalLink, Loader2, AlertCircle } from "lucide-react"
+import { apiKeysApi, workspacesApi, ApiKey, Workspace } from "@/lib/api"
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.acost.io/v1"
+const BASE_URL = typeof window !== "undefined" ? window.location.origin + "/api" : "/api"
 
 const API_TABS = ["cURL", "TypeScript", "Python", "PHP"]
 
-const API_EXAMPLES: Record<string, string> = {
-  cURL: `curl -X POST ${BASE_URL}/track \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+function getApiExamples(apiKey: string) {
+  return {
+    cURL: `curl -X POST ${BASE_URL}/track \\
+  -H "Authorization: Bearer ${apiKey}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "feature": "pdf-chat",
@@ -21,14 +22,14 @@ const API_EXAMPLES: Record<string, string> = {
     "output_tokens": 380,
     "latency_ms": 1340
   }'`,
-  TypeScript: `// Fire-and-forget after every AI call
+    TypeScript: `// Fire-and-forget after every AI call
 const start = Date.now()
 const response = await openai.chat.completions.create({ model: "gpt-4o", messages })
 
 fetch("${BASE_URL}/track", {
   method: "POST",
   headers: {
-    "Authorization": "Bearer YOUR_API_KEY",
+    "Authorization": "Bearer ${apiKey}",
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
@@ -41,7 +42,7 @@ fetch("${BASE_URL}/track", {
     latency_ms: Date.now() - start,
   }),
 }).catch(() => {})`,
-  Python: `import httpx, time
+    Python: `import httpx, time
 
 start = time.time()
 response = openai.chat.completions.create(model="gpt-4o", messages=messages)
@@ -50,7 +51,7 @@ response = openai.chat.completions.create(model="gpt-4o", messages=messages)
 httpx.post(
     "${BASE_URL}/track",
     headers={
-        "Authorization": "Bearer YOUR_API_KEY",
+        "Authorization": "Bearer ${apiKey}",
         "Content-Type": "application/json",
     },
     json={
@@ -63,12 +64,12 @@ httpx.post(
         "latency_ms": int((time.time() - start) * 1000),
     },
 )`,
-  PHP: `$start = microtime(true);
+    PHP: `$start = microtime(true);
 $response = $openai->chat()->create(['model' => 'gpt-4o', 'messages' => $messages]);
 
 // Fire-and-forget
 Http::withHeaders([
-    'Authorization' => 'Bearer YOUR_API_KEY',
+    'Authorization' => 'Bearer ${apiKey}',
     'Content-Type'  => 'application/json',
 ])->post('${BASE_URL}/track', [
     'feature'       => 'pdf-chat',
@@ -79,9 +80,11 @@ Http::withHeaders([
     'output_tokens' => $response->usage->completion_tokens,
     'latency_ms'    => (int)((microtime(true) - $start) * 1000),
 ]);`,
+  }
 }
 
-const RULES_FILE = `# Acost — AI Cost Tracking Rules
+function getRulesFile(apiKey: string) {
+  return `# Acost — AI Cost Tracking Rules
 # Drop this file into your project root as .acost-rules.md
 # Works with: Trae, Cursor, Windsurf, Copilot, and any AI coding editor
 
@@ -89,7 +92,7 @@ const RULES_FILE = `# Acost — AI Cost Tracking Rules
 Acost tracks AI API costs per feature and user.
 After every AI API call in this project, send a tracking event to:
   POST ${BASE_URL}/track
-  Authorization: Bearer YOUR_API_KEY
+  Authorization: Bearer ${apiKey}
 
 ## Tracking payload schema
 {
@@ -117,7 +120,7 @@ OpenRouter, Replicate, ElevenLabs, etc.), ALWAYS:
 3. After the call, fire a non-blocking tracking request:
    fetch("${BASE_URL}/track", {
      method: "POST",
-     headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+     headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
      body: JSON.stringify({ feature, user_id, model, provider, input_tokens, output_tokens, latency_ms })
    }).catch(() => {}) // never block the main flow
 
@@ -130,7 +133,7 @@ const start = Date.now()
 const response = await openai.chat.completions.create({ model: "gpt-4o", messages })
 fetch("${BASE_URL}/track", {
   method: "POST",
-  headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+  headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
   body: JSON.stringify({
     feature: "pdf-chat", user_id: userId,
     model: "gpt-4o", provider: "openai",
@@ -145,7 +148,7 @@ const start = Date.now()
 const response = await anthropic.messages.create({ model: "claude-3-5-sonnet-20241022", messages })
 fetch("${BASE_URL}/track", {
   method: "POST",
-  headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+  headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
   body: JSON.stringify({
     feature: "ai-summarizer", user_id: userId,
     model: "claude-3-5-sonnet", provider: "anthropic",
@@ -155,8 +158,10 @@ fetch("${BASE_URL}/track", {
   }),
 }).catch(() => {})
 `
+}
 
-function timeAgo(iso: string) {
+function timeAgo(iso: string | null) {
+  if (!iso) return "Never"
   const diff = Date.now() - new Date(iso).getTime()
   const h = Math.floor(diff / 3600000)
   if (h < 1) return "< 1h ago"
@@ -165,14 +170,41 @@ function timeAgo(iso: string) {
 }
 
 export default function ApiKeysPage() {
-  const [keys, setKeys] = useState(mockApiKeys)
+  const [keys, setKeys] = useState<ApiKey[]>([])
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
   const [newKeyName, setNewKeyName] = useState("")
   const [showForm, setShowForm] = useState(false)
+  const [createdKey, setCreatedKey] = useState<ApiKey | null>(null)
+  
   const [copied, setCopied] = useState<string | null>(null)
   const [apiTab, setApiTab] = useState("cURL")
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
   const [showBaseUrl, setShowBaseUrl] = useState(false)
   const [rulesDownloaded, setRulesDownloaded] = useState(false)
+
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true)
+      setError(null)
+      try {
+        const wsList = await workspacesApi.list()
+        setWorkspaces(wsList)
+        
+        if (wsList.length > 0) {
+          const keysList = await apiKeysApi.list(wsList[0].id)
+          setKeys(keysList)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to fetch data")
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [])
 
   function handleCopy(text: string, id: string) {
     navigator.clipboard.writeText(text).catch(() => {})
@@ -180,29 +212,36 @@ export default function ApiKeysPage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  function handleRevoke(id: string) {
-    setKeys((prev) => prev.filter((k) => k.id !== id))
-    setConfirmRevoke(null)
+  async function handleRevoke(id: string) {
+    try {
+      await apiKeysApi.revoke(id)
+      setKeys((prev) => prev.filter((k) => k.id !== id))
+      setConfirmRevoke(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke key")
+    }
   }
 
-  function handleCreate() {
-    if (!newKeyName.trim()) return
-    setKeys((prev) => [
-      ...prev,
-      {
-        id: `key_${Date.now()}`,
-        name: newKeyName.trim(),
-        key: `act_sk_live_${Math.random().toString(36).slice(2, 18)}`,
-        lastUsed: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-      },
-    ])
-    setNewKeyName("")
-    setShowForm(false)
+  async function handleCreate() {
+    if (!newKeyName.trim() || workspaces.length === 0) return
+    setLoading(true)
+    setError(null)
+    try {
+      const key = await apiKeysApi.create(workspaces[0].id, newKeyName.trim())
+      setKeys((prev) => [key, ...prev])
+      setCreatedKey(key)
+      setNewKeyName("")
+      setShowForm(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create key")
+    } finally {
+      setLoading(false)
+    }
   }
 
   function handleDownloadRules() {
-    const blob = new Blob([RULES_FILE], { type: "text/markdown" })
+    const key = keys[0]?.key || "YOUR_API_KEY"
+    const blob = new Blob([getRulesFile(key)], { type: "text/markdown" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
@@ -212,8 +251,51 @@ export default function ApiKeysPage() {
     setRulesDownloaded(true)
   }
 
+  const activeKey = keys[0]?.key || "YOUR_API_KEY"
+  const API_EXAMPLES = getApiExamples(activeKey)
+  const RULES_FILE = getRulesFile(activeKey)
+
   return (
     <div className="flex flex-col gap-6">
+      {error && (
+        <div className="flex items-center gap-2 rounded-[10px] border border-[#c22b10]/20 bg-[#c22b10]/5 p-4 text-sm text-[#c22b10]">
+          <AlertCircle className="size-4" />
+          {error}
+        </div>
+      )}
+
+      {createdKey && (
+        <div className="rounded-[14px] border-2 border-[#10c22b] bg-[#10c22b]/5 p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex size-6 items-center justify-center rounded-full bg-[#10c22b]">
+                <Check className="size-3.5 text-white" />
+              </div>
+              <p className="text-sm font-semibold text-[#000000]">New API Key created</p>
+            </div>
+            <button 
+              onClick={() => setCreatedKey(null)}
+              className="text-xs text-[#737373] hover:text-[#0a0a0a]"
+            >
+              Dismiss
+            </button>
+          </div>
+          <p className="mb-4 text-xs text-[#737373]">
+            Make sure to copy your API key now. You won&apos;t be able to see it again.
+          </p>
+          <div className="flex items-center gap-2 rounded-[10px] border border-[#10c22b]/20 bg-white px-4 py-3">
+            <code className="flex-1 font-mono text-sm text-[#0a0a0a]">{createdKey.key}</code>
+            <button
+              onClick={() => handleCopy(createdKey.key!, "created")}
+              className="flex shrink-0 items-center gap-1 rounded-[6px] border border-[#e5e5e5] bg-white px-2.5 py-1 text-xs font-medium text-[#737373] hover:text-[#0a0a0a] transition-colors"
+            >
+              {copied === "created" ? <Check className="size-3 text-[#10c22b]" /> : <Copy className="size-3" />}
+              {copied === "created" ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
         <div className="mb-1 flex items-center justify-between">
           <div>
@@ -248,10 +330,45 @@ export default function ApiKeysPage() {
       </div>
 
       <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
+        <div className="mb-4">
+          <p className="text-sm font-semibold text-[#000000]">Workspaces</p>
+          <p className="text-xs text-[#737373]">Manage your products and team environments</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          {loading && workspaces.length === 0 ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="size-5 animate-spin text-[#737373]" />
+            </div>
+          ) : (
+            workspaces.map((ws) => (
+              <div key={ws.id} className="flex items-center justify-between rounded-[10px] border border-[#f2f2f2] p-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-8 items-center justify-center rounded-[8px] bg-[#f2f2f2] text-xs font-bold text-[#000000]">
+                    {ws.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-[#0a0a0a]">{ws.name}</p>
+                    <p className="text-[11px] text-[#737373]">{ws.slug}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-[#10c22b]/10 px-2 py-0.5 text-[10px] font-medium text-[#10c22b]">
+                    Active
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold text-[#000000]">API Keys</p>
-            <p className="text-xs text-[#737373]">{keys.length} active key{keys.length !== 1 ? "s" : ""}</p>
+            <p className="text-xs text-[#737373]">
+              {loading ? "Loading..." : `${keys.length} active key${keys.length !== 1 ? "s" : ""}`}
+            </p>
           </div>
           <button
             onClick={() => setShowForm((v) => !v)}
@@ -275,10 +392,10 @@ export default function ApiKeysPage() {
             />
             <button
               onClick={handleCreate}
-              disabled={!newKeyName.trim()}
-              className="rounded-[8px] bg-[#000000] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-30 hover:opacity-80 transition-opacity"
+              disabled={!newKeyName.trim() || loading}
+              className="flex items-center justify-center rounded-[8px] bg-[#000000] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-30 hover:opacity-80 transition-opacity min-w-[60px]"
             >
-              Create
+              {loading ? <Loader2 className="size-3 animate-spin" /> : "Create"}
             </button>
             <button
               onClick={() => setShowForm(false)}
@@ -291,52 +408,71 @@ export default function ApiKeysPage() {
 
         <div className="flex flex-col">
           <div className="grid grid-cols-12 pb-2.5 text-[11px] font-medium uppercase tracking-wide text-[#a1a1a1]">
-            <span className="col-span-2">Name</span>
-            <span className="col-span-6">Key</span>
+            <span className="col-span-3">Name</span>
+            <span className="col-span-5">Key</span>
             <span className="col-span-2 text-right">Last used</span>
             <span className="col-span-2 text-right">Actions</span>
           </div>
-          {keys.map((k) => (
-            <div key={k.id} className="grid grid-cols-12 items-center border-t border-[#f2f2f2] py-3.5">
-              <span className="col-span-2 text-sm font-medium text-[#0a0a0a]">{k.name}</span>
-              <div className="col-span-6 flex items-center gap-2">
-                <code className="truncate font-mono text-xs text-[#737373]">{k.key}</code>
-                <button
-                  onClick={() => handleCopy(k.key, k.id)}
-                  className="shrink-0 text-[#737373] hover:text-[#0a0a0a] transition-colors"
-                >
-                  {copied === k.id ? <Check className="size-3.5 text-[#10c22b]" /> : <Copy className="size-3.5" />}
-                </button>
-              </div>
-              <span className="col-span-2 text-right text-xs text-[#737373]">{timeAgo(k.lastUsed)}</span>
-              <div className="col-span-2 flex items-center justify-end gap-2">
-                {confirmRevoke === k.id ? (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => handleRevoke(k.id)}
-                      className="rounded-[6px] bg-[#c22b10]/10 px-2 py-1 text-[11px] font-medium text-[#c22b10] hover:bg-[#c22b10]/20 transition-colors"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      onClick={() => setConfirmRevoke(null)}
-                      className="text-[11px] text-[#737373] hover:text-[#0a0a0a] transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmRevoke(k.id)}
-                    className="flex items-center gap-1 rounded-[6px] px-2 py-1 text-[11px] text-[#737373] hover:bg-[#f2f2f2] hover:text-[#c22b10] transition-colors"
-                  >
-                    <Trash2 className="size-3" />
-                    Revoke
-                  </button>
-                )}
-              </div>
+          {loading && keys.length === 0 ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="size-6 animate-spin text-[#737373]" />
             </div>
-          ))}
+          ) : keys.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center border-t border-[#f2f2f2]">
+              <p className="text-xs text-[#737373]">No API keys found.</p>
+              <button 
+                onClick={() => setShowForm(true)}
+                className="mt-2 text-xs font-medium text-[#000000] hover:underline"
+              >
+                Create your first key
+              </button>
+            </div>
+          ) : (
+            keys.map((k) => (
+              <div key={k.id} className="grid grid-cols-12 items-center border-t border-[#f2f2f2] py-3.5">
+                <span className="col-span-3 text-sm font-medium text-[#0a0a0a]">{k.name}</span>
+                <div className="col-span-5 flex items-center gap-2">
+                  <code className="truncate font-mono text-xs text-[#737373]">
+                    {k.key || "••••••••••••••••••••••••••••••••"}
+                  </code>
+                  <button
+                    onClick={() => k.key && handleCopy(k.key, k.id)}
+                    disabled={!k.key}
+                    className="shrink-0 text-[#737373] hover:text-[#0a0a0a] transition-colors disabled:opacity-30"
+                  >
+                    {copied === k.id ? <Check className="size-3.5 text-[#10c22b]" /> : <Copy className="size-3.5" />}
+                  </button>
+                </div>
+                <span className="col-span-2 text-right text-xs text-[#737373]">{timeAgo(k.last_used_at)}</span>
+                <div className="col-span-2 flex items-center justify-end gap-2">
+                  {confirmRevoke === k.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleRevoke(k.id)}
+                        className="rounded-[6px] bg-[#c22b10]/10 px-2 py-1 text-[11px] font-medium text-[#c22b10] hover:bg-[#c22b10]/20 transition-colors"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmRevoke(null)}
+                        className="text-[11px] text-[#737373] hover:text-[#0a0a0a] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmRevoke(k.id)}
+                      className="flex items-center gap-1 rounded-[6px] px-2 py-1 text-[11px] text-[#737373] hover:bg-[#f2f2f2] hover:text-[#c22b10] transition-colors"
+                    >
+                      <Trash2 className="size-3" />
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -438,14 +574,14 @@ export default function ApiKeysPage() {
         </div>
         <div className="relative rounded-[10px] border border-[#e5e5e5] bg-[#0a0a0a] p-5">
           <button
-            onClick={() => handleCopy(API_EXAMPLES[apiTab], "snippet")}
+            onClick={() => handleCopy(API_EXAMPLES[apiTab as keyof typeof API_EXAMPLES], "snippet")}
             className="absolute top-3 right-3 flex items-center gap-1 rounded-[6px] border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/60 hover:text-white transition-colors"
           >
             {copied === "snippet" ? <Check className="size-3 text-[#10c22b]" /> : <Copy className="size-3" />}
             {copied === "snippet" ? "Copied" : "Copy"}
           </button>
           <pre className="overflow-x-auto text-[12px] font-mono text-white/80 leading-relaxed">
-            {API_EXAMPLES[apiTab]}
+            {API_EXAMPLES[apiTab as keyof typeof API_EXAMPLES]}
           </pre>
         </div>
       </div>

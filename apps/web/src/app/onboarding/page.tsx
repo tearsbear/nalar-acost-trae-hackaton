@@ -1,17 +1,18 @@
 "use client"
 
-import { useState } from "react"
-import { Check, Copy, ArrowRight, Download, FileText, Zap } from "lucide-react"
-import Link from "next/link"
+import { useState, useEffect } from "react"
+import { Check, Copy, ArrowRight, Download, FileText, Zap, Loader2 } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { workspacesApi, apiKeysApi, ApiKey } from "@/lib/api"
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.acost.io/v1"
-const GENERATED_KEY = "act_sk_live_a8f3d2e1b9c4f7a2"
+const BASE_URL = typeof window !== "undefined" ? window.location.origin + "/api" : "/api"
 
 const API_TABS = ["cURL", "TypeScript", "Python", "PHP"]
 
-const API_EXAMPLES: Record<string, string> = {
-  cURL: `curl -X POST ${BASE_URL}/track \\
-  -H "Authorization: Bearer ${GENERATED_KEY}" \\
+function getApiExamples(apiKey: string) {
+  return {
+    cURL: `curl -X POST ${BASE_URL}/track \\
+  -H "Authorization: Bearer ${apiKey}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "feature": "pdf-chat",
@@ -22,10 +23,10 @@ const API_EXAMPLES: Record<string, string> = {
     "output_tokens": 380,
     "latency_ms": 1340
   }'`,
-  TypeScript: `const res = await fetch("${BASE_URL}/track", {
+    TypeScript: `const res = await fetch("${BASE_URL}/track", {
   method: "POST",
   headers: {
-    "Authorization": "Bearer ${GENERATED_KEY}",
+    "Authorization": "Bearer ${apiKey}",
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
@@ -38,12 +39,12 @@ const API_EXAMPLES: Record<string, string> = {
     latency_ms: Date.now() - startTime,
   }),
 })`,
-  Python: `import httpx
+    Python: `import httpx
 
 httpx.post(
     "${BASE_URL}/track",
     headers={
-        "Authorization": "Bearer ${GENERATED_KEY}",
+        "Authorization": "Bearer ${apiKey}",
         "Content-Type": "application/json",
     },
     json={
@@ -56,8 +57,8 @@ httpx.post(
         "latency_ms": latency_ms,
     },
 )`,
-  PHP: `Http::withHeaders([
-    'Authorization' => 'Bearer ${GENERATED_KEY}',
+    PHP: `Http::withHeaders([
+    'Authorization' => 'Bearer ${apiKey}',
     'Content-Type'  => 'application/json',
 ])->post('${BASE_URL}/track', [
     'feature'       => 'pdf-chat',
@@ -68,9 +69,11 @@ httpx.post(
     'output_tokens' => $usage->output_tokens,
     'latency_ms'    => $latencyMs,
 ]);`,
+  }
 }
 
-const RULES_FILE = `# Acost — AI Cost Tracking Rules
+function getRulesFile(apiKey: string) {
+  return `# Acost — AI Cost Tracking Rules
 # Drop this file into your project root as .acost-rules.md
 # Works with: Trae, Cursor, Windsurf, Copilot, and any AI coding editor
 
@@ -78,7 +81,7 @@ const RULES_FILE = `# Acost — AI Cost Tracking Rules
 Acost tracks AI API costs per feature and user.
 After every AI API call in this project, send a tracking event to:
   POST ${BASE_URL}/track
-  Authorization: Bearer YOUR_API_KEY
+  Authorization: Bearer ${apiKey}
 
 ## Tracking payload schema
 {
@@ -106,7 +109,7 @@ OpenRouter, Replicate, ElevenLabs, etc.), ALWAYS:
 3. After the call, fire a non-blocking tracking request:
    fetch("${BASE_URL}/track", {
      method: "POST",
-     headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+     headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
      body: JSON.stringify({ feature, user_id, model, provider, input_tokens, output_tokens, latency_ms })
    }).catch(() => {}) // never block the main flow
 
@@ -119,7 +122,7 @@ const start = Date.now()
 const response = await openai.chat.completions.create({ model: "gpt-4o", messages })
 fetch("${BASE_URL}/track", {
   method: "POST",
-  headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+  headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
   body: JSON.stringify({
     feature: "pdf-chat", user_id: userId,
     model: "gpt-4o", provider: "openai",
@@ -134,7 +137,7 @@ const start = Date.now()
 const response = await anthropic.messages.create({ model: "claude-3-5-sonnet-20241022", messages })
 fetch("${BASE_URL}/track", {
   method: "POST",
-  headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+  headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
   body: JSON.stringify({
     feature: "ai-summarizer", user_id: userId,
     model: "claude-3-5-sonnet", provider: "anthropic",
@@ -144,6 +147,7 @@ fetch("${BASE_URL}/track", {
   }),
 }).catch(() => {})
 `
+}
 
 const steps = [
   { id: 1, label: "Create workspace" },
@@ -153,12 +157,46 @@ const steps = [
 ]
 
 export default function OnboardingPage() {
+  const router = useRouter()
   const [step, setStep] = useState(1)
   const [workspaceName, setWorkspaceName] = useState("")
+  const [apiKey, setApiKey] = useState<ApiKey | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  
   const [copied, setCopied] = useState<string | null>(null)
   const [apiTab, setApiTab] = useState("cURL")
   const [verified, setVerified] = useState(false)
   const [rulesDownloaded, setRulesDownloaded] = useState(false)
+
+  useEffect(() => {
+    const onboarded = localStorage.getItem("acost_onboarded")
+    if (onboarded === "true") {
+      router.push("/dashboard")
+    }
+  }, [router])
+
+  async function handleCreateWorkspace() {
+    if (!workspaceName.trim()) return
+    setLoading(true)
+    setError(null)
+    try {
+      const ws = await workspacesApi.create(workspaceName.trim())
+      setStep(2)
+      // Automatically generate first API key
+      const key = await apiKeysApi.create(ws.id, "Default Key")
+      setApiKey(key)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create workspace")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleComplete() {
+    localStorage.setItem("acost_onboarded", "true")
+    router.push("/dashboard")
+  }
 
   function handleCopy(text: string, id: string) {
     navigator.clipboard.writeText(text).catch(() => {})
@@ -167,7 +205,8 @@ export default function OnboardingPage() {
   }
 
   function handleDownloadRules() {
-    const blob = new Blob([RULES_FILE], { type: "text/markdown" })
+    if (!apiKey?.key) return
+    const blob = new Blob([getRulesFile(apiKey.key)], { type: "text/markdown" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
@@ -176,6 +215,8 @@ export default function OnboardingPage() {
     URL.revokeObjectURL(url)
     setRulesDownloaded(true)
   }
+
+  const API_EXAMPLES = getApiExamples(apiKey?.key || "YOUR_API_KEY")
 
   return (
     <div className="min-h-screen bg-[#f9f9f9] flex flex-col">
@@ -186,9 +227,12 @@ export default function OnboardingPage() {
           </div>
           <span className="text-sm font-semibold tracking-tight text-[#000000]">Acost</span>
         </div>
-        <Link href="/dashboard" className="text-xs text-[#737373] hover:text-[#0a0a0a] transition-colors">
+        <button 
+          onClick={handleComplete}
+          className="text-xs text-[#737373] hover:text-[#0a0a0a] transition-colors"
+        >
           Skip for now →
-        </Link>
+        </button>
       </header>
 
       <div className="flex flex-1 items-start justify-center px-4 py-12">
@@ -237,6 +281,11 @@ export default function OnboardingPage() {
                     A workspace represents your product or company. You can create more later.
                   </p>
                 </div>
+                {error && (
+                  <div className="rounded-[8px] border border-[#c22b10]/30 bg-[#c22b10]/10 px-3 py-2 text-xs text-[#c22b10]">
+                    {error}
+                  </div>
+                )}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-medium text-[#0a0a0a]">Workspace name</label>
                   <input
@@ -244,30 +293,17 @@ export default function OnboardingPage() {
                     placeholder="My AI SaaS"
                     value={workspaceName}
                     onChange={(e) => setWorkspaceName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && workspaceName.trim() && setStep(2)}
+                    onKeyDown={(e) => e.key === "Enter" && workspaceName.trim() && handleCreateWorkspace()}
                     autoFocus
                     className="h-10 rounded-[10px] border border-[#e5e5e5] bg-transparent px-3 text-sm text-[#0a0a0a] outline-none placeholder:text-[#737373] focus:border-[#000000] transition-colors"
                   />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-[#0a0a0a]">What are you building?</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {["AI SaaS app", "AI agency", "Side project", "Internal tool", "AI startup", "Other"].map((opt) => (
-                      <button
-                        key={opt}
-                        className="rounded-[10px] border border-[#e5e5e5] px-3 py-2 text-xs text-[#737373] hover:border-[#0a0a0a] hover:text-[#0a0a0a] transition-colors text-left"
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
                 <button
-                  onClick={() => setStep(2)}
-                  disabled={!workspaceName.trim()}
+                  onClick={handleCreateWorkspace}
+                  disabled={!workspaceName.trim() || loading}
                   className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] bg-[#000000] text-sm font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-30"
                 >
-                  Continue <ArrowRight className="size-4" />
+                  {loading ? <Loader2 className="size-4 animate-spin" /> : "Continue"} <ArrowRight className="size-4" />
                 </button>
               </div>
             )}
@@ -302,10 +338,13 @@ export default function OnboardingPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 rounded-[10px] border border-[#e5e5e5] bg-[#f2f2f2] px-3 py-2.5">
-                      <code className="flex-1 font-mono text-xs text-[#0a0a0a]">{GENERATED_KEY}</code>
+                      <code className="flex-1 font-mono text-xs text-[#0a0a0a]">
+                        {loading ? "Generating..." : apiKey?.key || "••••••••••••••••"}
+                      </code>
                       <button
-                        onClick={() => handleCopy(GENERATED_KEY, "key")}
-                        className="flex shrink-0 items-center gap-1 rounded-[6px] border border-[#e5e5e5] bg-white px-2 py-1 text-[11px] text-[#737373] hover:text-[#0a0a0a] transition-colors"
+                        onClick={() => apiKey?.key && handleCopy(apiKey.key, "key")}
+                        disabled={!apiKey?.key}
+                        className="flex shrink-0 items-center gap-1 rounded-[6px] border border-[#e5e5e5] bg-white px-2 py-1 text-[11px] text-[#737373] hover:text-[#0a0a0a] transition-colors disabled:opacity-50"
                       >
                         {copied === "key" ? <Check className="size-3 text-[#10c22b]" /> : <Copy className="size-3" />}
                         {copied === "key" ? "Copied" : "Copy"}
@@ -321,7 +360,8 @@ export default function OnboardingPage() {
                 </div>
                 <button
                   onClick={() => setStep(3)}
-                  className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] bg-[#000000] text-sm font-medium text-white transition-opacity hover:opacity-80"
+                  disabled={!apiKey?.key}
+                  className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] bg-[#000000] text-sm font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-30"
                 >
                   I&apos;ve saved my credentials <ArrowRight className="size-4" />
                 </button>
@@ -391,14 +431,14 @@ export default function OnboardingPage() {
                   </div>
                   <div className="relative rounded-[10px] border border-[#e5e5e5] bg-[#0a0a0a] p-4">
                     <button
-                      onClick={() => handleCopy(API_EXAMPLES[apiTab], "snippet")}
+                      onClick={() => handleCopy(API_EXAMPLES[apiTab as keyof typeof API_EXAMPLES], "snippet")}
                       className="absolute top-3 right-3 flex items-center gap-1 rounded-[6px] border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/60 hover:text-white transition-colors"
                     >
                       {copied === "snippet" ? <Check className="size-3 text-[#10c22b]" /> : <Copy className="size-3" />}
                       {copied === "snippet" ? "Copied" : "Copy"}
                     </button>
                     <pre className="overflow-x-auto text-[11px] font-mono text-white/80 leading-relaxed">
-                      {API_EXAMPLES[apiTab]}
+                      {API_EXAMPLES[apiTab as keyof typeof API_EXAMPLES]}
                     </pre>
                   </div>
                 </div>
@@ -484,14 +524,14 @@ export default function OnboardingPage() {
                   </div>
                 )}
 
-                <Link
-                  href="/dashboard"
+                <button
+                  onClick={handleComplete}
                   className={`flex h-10 w-full items-center justify-center gap-2 rounded-[10px] text-sm font-medium transition-opacity hover:opacity-80 ${
                     verified ? "bg-[#000000] text-white" : "border border-[#e5e5e5] bg-white text-[#737373]"
                   }`}
                 >
                   {verified ? "Go to dashboard" : "Skip verification"} <ArrowRight className="size-4" />
-                </Link>
+                </button>
               </div>
             )}
           </div>

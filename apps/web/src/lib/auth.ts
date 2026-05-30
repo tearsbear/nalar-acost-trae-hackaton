@@ -1,52 +1,62 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.acost.io/v1"
-const TOKEN_KEY = "acost_token"
-
-export function getToken(): string | null {
-  if (typeof document === "undefined") return null
-  const match = document.cookie.match(new RegExp(`(?:^|; )${TOKEN_KEY}=([^;]*)`))
-  return match ? decodeURIComponent(match[1]) : null
-}
-
-export function setToken(token: string) {
-  const maxAge = 60 * 60 * 24 * 7
-  document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; SameSite=Lax`
-}
-
-export function clearToken() {
-  document.cookie = `${TOKEN_KEY}=; path=/; max-age=0`
-}
+import { supabase } from "./supabase"
 
 export async function apiLogin(email: string, password: string) {
-  const res = await fetch(`${API_URL}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
   })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error((data as { message?: string }).message ?? "Login failed")
+  
+  if (error) {
+    if (error.message.toLowerCase().includes("email not confirmed")) {
+      throw new Error("CONFIRM_EMAIL")
+    }
+    throw error
   }
-  const data = await res.json()
-  const token: string = data?.session?.access_token
-  if (!token) throw new Error("No access token returned")
-  setToken(token)
+
+  // Sync session to cookie for middleware
+  if (data.session) {
+    document.cookie = `sb-access-token=${data.session.access_token}; path=/; max-age=${data.session.expires_in}; SameSite=Lax`
+  }
+
   return data
 }
 
 export async function apiSignup(email: string, password: string, name: string) {
-  const res = await fetch(`${API_URL}/auth/signup`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, name }),
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: name,
+      },
+    },
   })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error((data as { message?: string }).message ?? "Signup failed")
+  
+  if (error) throw error
+  
+  // If no session is returned, it means email confirmation is required
+  if (!data.session) {
+    throw new Error("CONFIRM_EMAIL")
   }
-  return res.json()
+
+  // Sync session to cookie for middleware
+  if (data.session) {
+    document.cookie = `sb-access-token=${data.session.access_token}; path=/; max-age=${data.session.expires_in}; SameSite=Lax`
+  }
+  
+  return data
 }
 
-export function authHeaders(): HeadersInit {
-  const token = getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
+export async function apiLogout() {
+  const { error } = await supabase.auth.signOut()
+  if (error) throw error
+  
+  // Clear cookie
+  document.cookie = "sb-access-token=; path=/; max-age=0; SameSite=Lax"
+}
+
+export async function getSession() {
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+  return data.session
 }

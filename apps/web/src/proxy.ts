@@ -1,29 +1,41 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-const TOKEN_KEY = "acost_token"
+export async function proxy(req: NextRequest) {
+  const res = NextResponse.next()
+  
+  // Check if we have a session cookie
+  const authCookie = req.cookies.get('sb-access-token')
+  const session = !!authCookie
 
-const PUBLIC_PATHS = ["/login", "/signup", "/onboarding"]
+  const { pathname } = req.nextUrl
 
-export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl
-  const token = request.cookies.get(TOKEN_KEY)?.value
-
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
-  const isDashboard = pathname.startsWith("/dashboard")
-
-  if (isDashboard && !token) {
-    const loginUrl = new URL("/login", request.url)
-    loginUrl.searchParams.set("redirect", pathname)
-    return NextResponse.redirect(loginUrl)
+  // Protected routes
+  if (pathname === '/' || pathname.startsWith('/dashboard') || pathname.startsWith('/onboarding')) {
+    if (!session) {
+      const url = req.nextUrl.clone()
+      url.pathname = '/login'
+      if (pathname !== '/') {
+        url.searchParams.set('redirect', pathname)
+      }
+      return NextResponse.redirect(url)
+    }
   }
 
-  if (isPublic && token) {
-    return NextResponse.redirect(new URL("/dashboard", request.url))
+  // Auth routes (redirect to dashboard if already logged in)
+  if (pathname === '/login' || pathname === '/signup') {
+    if (session) {
+      const url = req.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
   }
 
-  return NextResponse.next()
+  return res
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/signup"],
+  matcher: [
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+  ],
 }

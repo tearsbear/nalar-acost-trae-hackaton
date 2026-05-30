@@ -3,14 +3,18 @@
 import { useRouter } from "next/navigation"
 import { AlertsDropdown } from "@/components/dashboard/alerts-dropdown"
 import { LogOut } from "lucide-react"
-import { clearToken } from "@/lib/auth"
+import { apiLogout } from "@/lib/auth"
 
 export function DashboardHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   const router = useRouter()
 
-  function handleLogout() {
-    clearToken()
-    router.push("/login")
+  async function handleLogout() {
+    try {
+      await apiLogout()
+      router.push("/login")
+    } catch (err) {
+      console.error("Failed to logout:", err)
+    }
   }
 
   return (

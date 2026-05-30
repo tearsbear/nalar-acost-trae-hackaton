@@ -3,7 +3,7 @@
 import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, Mail } from "lucide-react"
 import { FaultyTerminal } from "@/components/ui/faulty-terminal"
 import { apiLogin } from "@/lib/auth"
 
@@ -25,72 +25,97 @@ function LoginForm() {
       const redirect = searchParams.get("redirect") ?? "/dashboard"
       router.push(redirect)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
+      if (err instanceof Error && err.message === "CONFIRM_EMAIL") {
+        setError("CONFIRM_EMAIL")
+      } else {
+        setError(err instanceof Error ? err.message : "Something went wrong")
+      }
     } finally {
       setLoading(false)
     }
   }
 
-  return (
-    <div className="rounded-[16px] border border-white/10 bg-white/5 p-6 backdrop-blur-md">
-      <form className="flex flex-col gap-4" onSubmit={handleLogin}>
-        {error && (
-          <div className="rounded-[8px] border border-[#c22b10]/30 bg-[#c22b10]/10 px-3 py-2 text-xs text-[#ff6b4a]">
-            {error}
-          </div>
-        )}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-white/70" htmlFor="email">
-            Email address
-          </label>
-          <input
-            id="email"
-            type="email"
-            placeholder="you@company.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="h-10 rounded-[10px] border border-white/10 bg-white/5 px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-white/30 transition-colors"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-white/70" htmlFor="password">
-              Password
-            </label>
-            <Link href="#" className="text-[11px] text-white/40 hover:text-white/70 transition-colors">
-              Forgot password?
-            </Link>
-          </div>
-          <div className="relative">
-            <input
-              id="password"
-              type={showPassword ? "text" : "password"}
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="h-10 w-full rounded-[10px] border border-white/10 bg-white/5 px-3 pr-10 text-sm text-white outline-none placeholder:text-white/25 focus:border-white/30 transition-colors"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
-            >
-              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
+  if (error === "CONFIRM_EMAIL") {
+    return (
+      <div className="text-center py-2">
+        <div className="mb-6 flex justify-center">
+          <div className="flex size-14 items-center justify-center rounded-full bg-white/10">
+            <Mail className="size-6 text-white" />
           </div>
         </div>
-
+        <h2 className="text-lg font-semibold text-white">Confirm your email</h2>
+        <p className="mt-2 text-sm text-white/70 leading-relaxed">
+          We&apos;ve sent a confirmation link to <span className="text-white font-medium">{email}</span>. 
+          Please check your inbox to activate your account.
+        </p>
         <button
-          type="submit"
-          disabled={loading}
-          className="mt-1 h-10 w-full rounded-[10px] bg-white text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+          onClick={() => setError(null)}
+          className="mt-8 text-xs font-medium text-white/40 hover:text-white transition-colors"
         >
-          {loading ? "Signing in..." : "Sign in"}
+          ← Back to sign in
         </button>
-      </form>
+      </div>
+    )
+  }
+
+  return (
+    <form className="flex flex-col gap-4" onSubmit={handleLogin}>
+      {error && (
+        <div className="rounded-[8px] border border-[#c22b10]/30 bg-[#c22b10]/10 px-3 py-2 text-xs text-[#ff6b4a]">
+          {error}
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-white/70" htmlFor="email">
+          Email address
+        </label>
+        <input
+          id="email"
+          type="email"
+          placeholder="you@company.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          className="h-10 rounded-[10px] border border-white/10 bg-white/5 px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-white/30 transition-colors"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-white/70" htmlFor="password">
+            Password
+          </label>
+          <Link href="#" className="text-[11px] text-white/40 hover:text-white/70 transition-colors">
+            Forgot password?
+          </Link>
+        </div>
+        <div className="relative">
+          <input
+            id="password"
+            type={showPassword ? "text" : "password"}
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="h-10 w-full rounded-[10px] border border-white/10 bg-white/5 px-3 pr-10 text-sm text-white outline-none placeholder:text-white/25 focus:border-white/30 transition-colors"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+          >
+            {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        </div>
+      </div>
+
+      <button
+        type="submit"
+        disabled={loading}
+        className="mt-1 h-10 w-full rounded-[10px] bg-white text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+      >
+        {loading ? "Signing in..." : "Sign in"}
+      </button>
 
       <p className="mt-5 text-center text-xs text-white/30">
         Don&apos;t have an account?{" "}
@@ -98,7 +123,7 @@ function LoginForm() {
           Sign up
         </Link>
       </p>
-    </div>
+    </form>
   )
 }
 
@@ -134,9 +159,11 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-white/50">Sign in to your workspace</p>
         </div>
 
-        <Suspense fallback={<div className="rounded-[16px] border border-white/10 bg-white/5 p-6 h-64 animate-pulse" />}>
-          <LoginForm />
-        </Suspense>
+        <div className="rounded-[16px] border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+          <Suspense fallback={<div className="h-64 flex items-center justify-center"><Mail className="size-6 text-white/20 animate-pulse" /></div>}>
+            <LoginForm />
+          </Suspense>
+        </div>
 
         <p className="mt-4 text-center text-[11px] text-white/20">
           By signing in you agree to our{" "}

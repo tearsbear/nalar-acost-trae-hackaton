@@ -5,15 +5,32 @@ import { CostBadge } from "@/components/ui/cost-badge"
 import {
   mockSpendTrend,
   mockFeatureCosts,
-  mockTopUsers,
   mockModelUsage,
+  mockInsights,
 } from "@/lib/mock-data"
-import { DollarSign, Zap, TrendingUp, Clock } from "lucide-react"
+import { DollarSign, Zap, TrendingUp, Clock, ArrowRight } from "lucide-react"
+import Link from "next/link"
 
 const totalSpend = mockFeatureCosts.reduce((s, f) => s + f.cost, 0)
 const totalRequests = mockFeatureCosts.reduce((s, f) => s + f.requests, 0)
 const topFeature = [...mockFeatureCosts].sort((a, b) => b.cost - a.cost)[0]
 const avgCost = totalSpend / totalRequests
+
+const totalSavings = mockInsights.reduce((s, i) => s + i.estimatedSavings, 0)
+
+function ConfidencePip({ level }: { level: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold tracking-tight ${
+      level === "HIGH"
+        ? "bg-emerald-500 text-white"
+        : level === "MEDIUM"
+        ? "bg-amber-500/10 text-amber-600"
+        : "bg-slate-100 text-slate-500"
+    }`}>
+      {level}
+    </span>
+  )
+}
 
 function StatCard({
   label,
@@ -66,33 +83,55 @@ export default function DashboardPage() {
 
       <div className="flex flex-col gap-5 p-6">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <StatCard label="Total AI spend" value={`$${totalSpend.toFixed(2)}`} trend={14.2} icon={DollarSign} accent />
+          <StatCard label="Total AI spend" value={`$${totalSpend.toFixed(2)}`} trend={14.2} icon={DollarSign} />
           <StatCard label="Total requests" value={totalRequests.toLocaleString()} trend={8.7} icon={Zap} />
           <StatCard label="Top feature cost" value={`$${topFeature.cost.toFixed(2)}`} icon={TrendingUp} />
           <StatCard label="Avg cost / req" value={`$${avgCost.toFixed(4)}`} trend={-3.1} icon={Clock} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="col-span-2 rounded-[14px] border border-[#e5e5e5] bg-white p-5">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-[#000000]">Spend trend</p>
-                <p className="text-xs text-[#737373]">Daily AI cost over last 7 days</p>
+          <div className="col-span-2 rounded-[14px] border border-emerald-500/20 bg-emerald-50/30 p-5">
+            <div className="flex flex-col h-full justify-between gap-5">
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-600">
+                      AI INSIGHTS · WEEKLY
+                    </span>
+                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600">
+                      ⚠ {mockInsights.length} Recommendations
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {mockInsights.slice(0, 4).map((insight) => (
+                    <div key={insight.id} className="flex flex-col gap-1.5 rounded-[10px] border border-emerald-500/10 bg-white/50 p-3 shadow-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <ConfidencePip level={insight.confidence} />
+                        <span className="text-[10px] font-bold text-emerald-600">+${insight.estimatedSavings}/mo</span>
+                      </div>
+                      <p className="text-[13px] font-semibold text-slate-800 line-clamp-1">{insight.title}</p>
+                      <p className="text-[11px] text-slate-600 line-clamp-2 leading-normal">
+                        {insight.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="flex gap-1 rounded-[8px] border border-[#e5e5e5] p-0.5">
-                {["7d", "30d"].map((p, i) => (
-                  <button
-                    key={p}
-                    className={`rounded-[6px] px-2.5 py-1 text-xs font-medium transition-colors ${
-                      i === 0 ? "bg-[#0a0a0a] text-white" : "text-[#737373] hover:text-[#0a0a0a]"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
+
+              <div className="rounded-[10px] bg-white border border-emerald-500/10 px-4 py-3 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="text-left">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Total Potential Savings</p>
+                    <p className="text-2xl font-bold text-emerald-600">${totalSavings}<span className="text-xs font-medium text-slate-400 ml-1">/mo</span></p>
+                  </div>
+                    <Link href="/dashboard/insights" className="text-[11px] font-medium text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-colors">
+                    View all insights <ArrowRight className="size-3" />
+                  </Link>
+                </div>
               </div>
             </div>
-            <SpendTrendChart data={mockSpendTrend} />
           </div>
 
           <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
@@ -156,66 +195,25 @@ export default function DashboardPage() {
           </div>
 
           <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
-            <div className="mb-4">
-              <p className="text-sm font-semibold text-[#000000]">Top users by cost</p>
-              <p className="text-xs text-[#737373]">Heaviest AI consumers this period</p>
-            </div>
-            <div className="flex flex-col gap-0">
-              <div className="grid grid-cols-4 pb-2.5 text-[11px] font-medium uppercase tracking-wide text-[#a1a1a1]">
-                <span className="col-span-2">User ID</span>
-                <span className="text-right">Cost</span>
-                <span className="text-right">Status</span>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[#000000]">Spend trend</p>
+                <p className="text-xs text-[#737373]">Daily AI cost over last 7 days</p>
               </div>
-              {mockTopUsers.map((u) => (
-                <div
-                  key={u.userId}
-                  className="grid grid-cols-4 border-t border-[#f2f2f2] py-3 items-center"
-                >
-                  <span className="col-span-2 font-mono text-xs text-[#0a0a0a]">{u.userId}</span>
-                  <span className="text-right">
-                    <CostBadge value={u.cost} />
-                  </span>
-                  <span className="text-right">
-                    {u.flag ? (
-                      <span className="inline-flex items-center rounded-full bg-[#c22b10]/10 px-2 py-0.5 text-[10px] font-medium text-[#c22b10]">
-                        high
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full bg-[#f2f2f2] px-2 py-0.5 text-[10px] font-medium text-[#737373]">
-                        ok
-                      </span>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-[14px] border border-[#e5e5e5] bg-[#0a0a0a] p-5">
-          <div className="flex items-start justify-between gap-6">
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/60">
-                  AI SUMMARY · WEEKLY
-                </span>
-                <span className="rounded-full bg-[#c22b10]/20 px-2 py-0.5 text-[10px] font-medium text-[#ff6b4a]">
-                  ⚠ 2 critical alerts
-                </span>
+              <div className="flex gap-1 rounded-[8px] border border-[#e5e5e5] p-0.5">
+                {["7d", "30d"].map((p, i) => (
+                  <button
+                    key={p}
+                    className={`rounded-[6px] px-2.5 py-1 text-xs font-medium transition-colors ${
+                      i === 0 ? "bg-[#0a0a0a] text-white" : "text-[#737373] hover:text-[#0a0a0a]"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
               </div>
-              <p className="text-sm text-white/90 leading-relaxed max-w-2xl">
-                Total spend increased <span className="font-semibold text-white">14%</span> this week.{" "}
-                <span className="text-[#ff6b4a] font-medium">PDF Chat became unprofitable</span> — revenue $320 vs cost $441.
-                GPT-4o usage is up 22%; switching to GPT-4o-mini for retrieval tasks could save{" "}
-                <span className="font-semibold text-white">$182/month</span>. Content Gen prompts averaging 4,200 tokens — trim system prompts for another{" "}
-                <span className="font-semibold text-white">$39/month</span> in savings.
-              </p>
             </div>
-            <div className="shrink-0 rounded-[10px] border border-white/10 bg-white/5 px-4 py-3 text-center">
-              <p className="text-[10px] text-white/50">Est. savings</p>
-              <p className="text-xl font-semibold text-white">$291</p>
-              <p className="text-[10px] text-white/50">per month</p>
-            </div>
+            <SpendTrendChart data={mockSpendTrend} />
           </div>
         </div>
       </div>

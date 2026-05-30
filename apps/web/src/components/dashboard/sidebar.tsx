@@ -1,10 +1,12 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LayoutDashboard, ScrollText, Lightbulb, Settings, LogOut } from "lucide-react"
+import { LayoutDashboard, ScrollText, Lightbulb, Settings, LogOut, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { clearToken } from "@/lib/auth"
+import { apiLogout } from "@/lib/auth"
+import { workspacesApi, Workspace } from "@/lib/api"
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -16,10 +18,32 @@ const navItems = [
 export function DashboardSidebar() {
   const pathname = usePathname()
   const router = useRouter()
+  const [workspace, setWorkspace] = useState<Workspace | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  function handleLogout() {
-    clearToken()
-    router.push("/login")
+  useEffect(() => {
+    async function fetchWorkspace() {
+      try {
+        const ws = await workspacesApi.list()
+        if (ws.length > 0) {
+          setWorkspace(ws[0]) // Show first workspace for now
+        }
+      } catch (err) {
+        console.error("Failed to fetch workspace:", err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchWorkspace()
+  }, [])
+
+  async function handleLogout() {
+    try {
+      await apiLogout()
+      router.push("/login")
+    } catch (err) {
+      console.error("Failed to logout:", err)
+    }
   }
 
   return (
@@ -56,11 +80,19 @@ export function DashboardSidebar() {
       <div className="border-t border-[#e5e5e5] p-2.5">
         <div className="flex items-center gap-2.5 rounded-[10px] px-3 py-2.5 hover:bg-[#f2f2f2] transition-colors">
           <div className="flex size-7 items-center justify-center rounded-full bg-[#0a0a0a] text-[11px] font-semibold text-white shrink-0">
-            JS
+            {workspace ? workspace.name.slice(0, 1).toUpperCase() : "U"}
           </div>
           <div className="flex flex-1 flex-col min-w-0">
-            <span className="truncate text-xs font-medium text-[#0a0a0a]">Jane Smith</span>
-            <span className="truncate text-[11px] text-[#737373]">My AI SaaS</span>
+            <span className="truncate text-xs font-medium text-[#0a0a0a]">
+              {workspace ? workspace.name : "User"}
+            </span>
+            <span className="truncate text-[11px] text-[#737373]">
+              {loading ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                workspace?.slug || "No workspace"
+              )}
+            </span>
           </div>
           <button
             onClick={handleLogout}
