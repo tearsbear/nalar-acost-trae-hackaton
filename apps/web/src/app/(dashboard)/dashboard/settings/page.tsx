@@ -212,7 +212,30 @@ export default function ApiKeysPage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
+  const [editingWs, setEditingWs] = useState<string | null>(null)
+  const [wsName, setWsName] = useState("")
+
+  async function handleUpdateWorkspace(id: string) {
+    if (!wsName.trim()) return
+    setLoading(true)
+    try {
+      const updated = await workspacesApi.update(id, wsName.trim())
+      setWorkspaces((prev) => prev.map((ws) => (ws.id === id ? updated : ws)))
+      setEditingWs(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update workspace")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function startEditing(ws: Workspace) {
+    setEditingWs(ws.id)
+    setWsName(ws.name)
+  }
+
   async function handleRevoke(id: string) {
+    if (!workspaces[0]) return
     try {
       await apiKeysApi.revoke(id)
       setKeys((prev) => prev.filter((k) => k.id !== id))
@@ -342,20 +365,48 @@ export default function ApiKeysPage() {
           ) : (
             workspaces.map((ws) => (
               <div key={ws.id} className="flex items-center justify-between rounded-[10px] border border-[#f2f2f2] p-3">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-1 items-center gap-3">
                   <div className="flex size-8 items-center justify-center rounded-[8px] bg-[#f2f2f2] text-xs font-bold text-[#000000]">
                     {ws.name.slice(0, 2).toUpperCase()}
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-[#0a0a0a]">{ws.name}</p>
-                    <p className="text-[11px] text-[#737373]">{ws.slug}</p>
-                  </div>
+                  {editingWs === ws.id ? (
+                    <div className="flex flex-1 items-center gap-2">
+                      <input
+                        type="text"
+                        value={wsName}
+                        onChange={(e) => setWsName(e.target.value)}
+                        className="h-8 flex-1 rounded-[6px] border border-[#000000] bg-white px-2 text-sm text-[#0a0a0a] outline-none"
+                        autoFocus
+                        onKeyDown={(e) => e.key === "Enter" && handleUpdateWorkspace(ws.id)}
+                      />
+                      <button
+                        onClick={() => handleUpdateWorkspace(ws.id)}
+                        className="text-xs font-medium text-[#000000] hover:underline"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingWs(null)}
+                        className="text-xs text-[#737373] hover:text-[#0a0a0a]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-sm font-medium text-[#0a0a0a]">{ws.name}</p>
+                      <p className="text-[11px] text-[#737373]">{ws.slug}</p>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-[#10c22b]/10 px-2 py-0.5 text-[10px] font-medium text-[#10c22b]">
-                    Active
-                  </span>
-                </div>
+                {!editingWs && (
+                  <button
+                    onClick={() => startEditing(ws)}
+                    className="text-xs font-medium text-[#737373] hover:text-[#000000] transition-colors"
+                  >
+                    Edit
+                  </button>
+                )}
               </div>
             ))
           )}

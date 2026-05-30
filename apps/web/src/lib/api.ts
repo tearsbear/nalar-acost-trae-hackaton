@@ -69,6 +69,17 @@ export const workspacesApi = {
 
     return workspace
   },
+  update: async (id: string, name: string): Promise<Workspace> => {
+    const { data, error } = await supabase
+      .from("workspaces")
+      .update({ name })
+      .eq("id", id)
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  },
 }
 
 export const apiKeysApi = {
