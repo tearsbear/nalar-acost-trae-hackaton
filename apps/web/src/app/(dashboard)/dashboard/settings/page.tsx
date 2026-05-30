@@ -1,0 +1,454 @@
+"use client"
+
+import { useState } from "react"
+import { Copy, Check, Trash2, Plus, Eye, EyeOff, Download, FileText, ExternalLink } from "lucide-react"
+import { mockApiKeys } from "@/lib/mock-data"
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.acost.io/v1"
+
+const API_TABS = ["cURL", "TypeScript", "Python", "PHP"]
+
+const API_EXAMPLES: Record<string, string> = {
+  cURL: `curl -X POST ${BASE_URL}/track \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "feature": "pdf-chat",
+    "user_id": "usr_123",
+    "model": "gpt-4o",
+    "provider": "openai",
+    "input_tokens": 1240,
+    "output_tokens": 380,
+    "latency_ms": 1340
+  }'`,
+  TypeScript: `// Fire-and-forget after every AI call
+const start = Date.now()
+const response = await openai.chat.completions.create({ model: "gpt-4o", messages })
+
+fetch("${BASE_URL}/track", {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer YOUR_API_KEY",
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    feature: "pdf-chat",
+    user_id: userId,
+    model: "gpt-4o",
+    provider: "openai",
+    input_tokens: response.usage.prompt_tokens,
+    output_tokens: response.usage.completion_tokens,
+    latency_ms: Date.now() - start,
+  }),
+}).catch(() => {})`,
+  Python: `import httpx, time
+
+start = time.time()
+response = openai.chat.completions.create(model="gpt-4o", messages=messages)
+
+# Fire-and-forget
+httpx.post(
+    "${BASE_URL}/track",
+    headers={
+        "Authorization": "Bearer YOUR_API_KEY",
+        "Content-Type": "application/json",
+    },
+    json={
+        "feature": "pdf-chat",
+        "user_id": user.id,
+        "model": "gpt-4o",
+        "provider": "openai",
+        "input_tokens": response.usage.prompt_tokens,
+        "output_tokens": response.usage.completion_tokens,
+        "latency_ms": int((time.time() - start) * 1000),
+    },
+)`,
+  PHP: `$start = microtime(true);
+$response = $openai->chat()->create(['model' => 'gpt-4o', 'messages' => $messages]);
+
+// Fire-and-forget
+Http::withHeaders([
+    'Authorization' => 'Bearer YOUR_API_KEY',
+    'Content-Type'  => 'application/json',
+])->post('${BASE_URL}/track', [
+    'feature'       => 'pdf-chat',
+    'user_id'       => $user->id,
+    'model'         => 'gpt-4o',
+    'provider'      => 'openai',
+    'input_tokens'  => $response->usage->prompt_tokens,
+    'output_tokens' => $response->usage->completion_tokens,
+    'latency_ms'    => (int)((microtime(true) - $start) * 1000),
+]);`,
+}
+
+const RULES_FILE = `# Acost — AI Cost Tracking Rules
+# Drop this file into your project root as .acost-rules.md
+# Works with: Trae, Cursor, Windsurf, Copilot, and any AI coding editor
+
+## What is Acost?
+Acost tracks AI API costs per feature and user.
+After every AI API call in this project, send a tracking event to:
+  POST ${BASE_URL}/track
+  Authorization: Bearer YOUR_API_KEY
+
+## Tracking payload schema
+{
+  "feature":       string,   // name of the feature making the call (e.g. "pdf-chat")
+  "user_id":       string,   // end-user identifier (optional but recommended)
+  "model":         string,   // model name (e.g. "gpt-4o", "claude-3-5-sonnet")
+  "provider":      string,   // "openai" | "anthropic" | "google" | "openrouter" | ...
+  "input_tokens":  number,   // from the API response usage object
+  "output_tokens": number,   // from the API response usage object
+  "latency_ms":    number    // wall-clock time of the AI call in milliseconds
+}
+
+## Rules for AI editors
+When you write or modify code that calls an AI API (OpenAI, Anthropic, Google Gemini,
+OpenRouter, Replicate, ElevenLabs, etc.), ALWAYS:
+
+1. Record the start time before the API call:
+   const start = Date.now()
+
+2. Extract token usage from the response:
+   - OpenAI:    response.usage.prompt_tokens / completion_tokens
+   - Anthropic: response.usage.input_tokens / output_tokens
+   - Gemini:    response.usageMetadata.promptTokenCount / candidatesTokenCount
+
+3. After the call, fire a non-blocking tracking request:
+   fetch("${BASE_URL}/track", {
+     method: "POST",
+     headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+     body: JSON.stringify({ feature, user_id, model, provider, input_tokens, output_tokens, latency_ms })
+   }).catch(() => {}) // never block the main flow
+
+4. Never await the tracking call — it must be fire-and-forget.
+5. Never throw or surface errors from the tracking call to the user.
+6. Use the feature name that describes the product feature, not the function name.
+
+## Example — OpenAI
+const start = Date.now()
+const response = await openai.chat.completions.create({ model: "gpt-4o", messages })
+fetch("${BASE_URL}/track", {
+  method: "POST",
+  headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    feature: "pdf-chat", user_id: userId,
+    model: "gpt-4o", provider: "openai",
+    input_tokens: response.usage.prompt_tokens,
+    output_tokens: response.usage.completion_tokens,
+    latency_ms: Date.now() - start,
+  }),
+}).catch(() => {})
+
+## Example — Anthropic
+const start = Date.now()
+const response = await anthropic.messages.create({ model: "claude-3-5-sonnet-20241022", messages })
+fetch("${BASE_URL}/track", {
+  method: "POST",
+  headers: { "Authorization": "Bearer YOUR_API_KEY", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    feature: "ai-summarizer", user_id: userId,
+    model: "claude-3-5-sonnet", provider: "anthropic",
+    input_tokens: response.usage.input_tokens,
+    output_tokens: response.usage.output_tokens,
+    latency_ms: Date.now() - start,
+  }),
+}).catch(() => {})
+`
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime()
+  const h = Math.floor(diff / 3600000)
+  if (h < 1) return "< 1h ago"
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+export default function ApiKeysPage() {
+  const [keys, setKeys] = useState(mockApiKeys)
+  const [newKeyName, setNewKeyName] = useState("")
+  const [showForm, setShowForm] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+  const [apiTab, setApiTab] = useState("cURL")
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null)
+  const [showBaseUrl, setShowBaseUrl] = useState(false)
+  const [rulesDownloaded, setRulesDownloaded] = useState(false)
+
+  function handleCopy(text: string, id: string) {
+    navigator.clipboard.writeText(text).catch(() => {})
+    setCopied(id)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
+  function handleRevoke(id: string) {
+    setKeys((prev) => prev.filter((k) => k.id !== id))
+    setConfirmRevoke(null)
+  }
+
+  function handleCreate() {
+    if (!newKeyName.trim()) return
+    setKeys((prev) => [
+      ...prev,
+      {
+        id: `key_${Date.now()}`,
+        name: newKeyName.trim(),
+        key: `act_sk_live_${Math.random().toString(36).slice(2, 18)}`,
+        lastUsed: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      },
+    ])
+    setNewKeyName("")
+    setShowForm(false)
+  }
+
+  function handleDownloadRules() {
+    const blob = new Blob([RULES_FILE], { type: "text/markdown" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = ".acost-rules.md"
+    a.click()
+    URL.revokeObjectURL(url)
+    setRulesDownloaded(true)
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
+        <div className="mb-1 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[#000000]">API Base URL</p>
+            <p className="text-xs text-[#737373]">Use this endpoint to send tracking events from your app</p>
+          </div>
+          <a
+            href="#"
+            className="flex items-center gap-1 text-xs text-[#737373] hover:text-[#0a0a0a] transition-colors"
+          >
+            API docs <ExternalLink className="size-3" />
+          </a>
+        </div>
+        <div className="mt-4 flex items-center gap-2 rounded-[10px] border border-[#e5e5e5] bg-[#f2f2f2] px-4 py-3">
+          <code className="flex-1 font-mono text-sm text-[#0a0a0a]">
+            {showBaseUrl ? BASE_URL : "https://••••••••••••••••••/v1"}
+          </code>
+          <button
+            onClick={() => setShowBaseUrl((v) => !v)}
+            className="shrink-0 text-[#737373] hover:text-[#0a0a0a] transition-colors"
+          >
+            {showBaseUrl ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+          <button
+            onClick={() => handleCopy(BASE_URL, "baseurl")}
+            className="flex shrink-0 items-center gap-1 rounded-[6px] border border-[#e5e5e5] bg-white px-2.5 py-1 text-xs font-medium text-[#737373] hover:text-[#0a0a0a] transition-colors"
+          >
+            {copied === "baseurl" ? <Check className="size-3 text-[#10c22b]" /> : <Copy className="size-3" />}
+            {copied === "baseurl" ? "Copied" : "Copy"}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[#000000]">API Keys</p>
+            <p className="text-xs text-[#737373]">{keys.length} active key{keys.length !== 1 ? "s" : ""}</p>
+          </div>
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="flex items-center gap-1.5 rounded-[9999px] bg-[#000000] px-3 py-1.5 text-xs font-medium text-white hover:opacity-80 transition-opacity"
+          >
+            <Plus className="size-3" />
+            New key
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="mb-4 flex items-center gap-2 rounded-[10px] border border-[#000000] bg-[#f2f2f2] p-3">
+            <input
+              type="text"
+              placeholder="Key name (e.g. Production)"
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              autoFocus
+              className="flex-1 bg-transparent text-sm text-[#0a0a0a] outline-none placeholder:text-[#737373]"
+            />
+            <button
+              onClick={handleCreate}
+              disabled={!newKeyName.trim()}
+              className="rounded-[8px] bg-[#000000] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-30 hover:opacity-80 transition-opacity"
+            >
+              Create
+            </button>
+            <button
+              onClick={() => setShowForm(false)}
+              className="text-xs text-[#737373] hover:text-[#0a0a0a] transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        <div className="flex flex-col">
+          <div className="grid grid-cols-12 pb-2.5 text-[11px] font-medium uppercase tracking-wide text-[#a1a1a1]">
+            <span className="col-span-2">Name</span>
+            <span className="col-span-6">Key</span>
+            <span className="col-span-2 text-right">Last used</span>
+            <span className="col-span-2 text-right">Actions</span>
+          </div>
+          {keys.map((k) => (
+            <div key={k.id} className="grid grid-cols-12 items-center border-t border-[#f2f2f2] py-3.5">
+              <span className="col-span-2 text-sm font-medium text-[#0a0a0a]">{k.name}</span>
+              <div className="col-span-6 flex items-center gap-2">
+                <code className="truncate font-mono text-xs text-[#737373]">{k.key}</code>
+                <button
+                  onClick={() => handleCopy(k.key, k.id)}
+                  className="shrink-0 text-[#737373] hover:text-[#0a0a0a] transition-colors"
+                >
+                  {copied === k.id ? <Check className="size-3.5 text-[#10c22b]" /> : <Copy className="size-3.5" />}
+                </button>
+              </div>
+              <span className="col-span-2 text-right text-xs text-[#737373]">{timeAgo(k.lastUsed)}</span>
+              <div className="col-span-2 flex items-center justify-end gap-2">
+                {confirmRevoke === k.id ? (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleRevoke(k.id)}
+                      className="rounded-[6px] bg-[#c22b10]/10 px-2 py-1 text-[11px] font-medium text-[#c22b10] hover:bg-[#c22b10]/20 transition-colors"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => setConfirmRevoke(null)}
+                      className="text-[11px] text-[#737373] hover:text-[#0a0a0a] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmRevoke(k.id)}
+                    className="flex items-center gap-1 rounded-[6px] px-2 py-1 text-[11px] text-[#737373] hover:bg-[#f2f2f2] hover:text-[#c22b10] transition-colors"
+                  >
+                    <Trash2 className="size-3" />
+                    Revoke
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[#000000]">AI Editor Rules File</p>
+            <p className="text-xs text-[#737373]">
+              Teach your AI coding editor to auto-inject tracking after every AI API call
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {["Trae", "Cursor", "Windsurf", "Copilot"].map((e) => (
+              <span key={e} className="rounded-full border border-[#e5e5e5] px-2 py-0.5 text-[10px] font-medium text-[#737373]">
+                {e}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 rounded-[10px] border border-[#e5e5e5] bg-[#f2f2f2] p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-[#0a0a0a]">
+              <FileText className="size-4 text-white" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <p className="text-xs font-semibold text-[#000000]">.acost-rules.md</p>
+              <p className="text-[11px] text-[#737373] leading-relaxed">
+                Drop this file into your project root. Your AI editor will read it and automatically add
+                the <code className="font-mono text-[#0a0a0a]">POST /track</code> call after every AI API call it writes or modifies.
+                No SDK, no wrappers — just plain HTTP.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownloadRules}
+              className={`flex items-center gap-2 rounded-[9999px] px-3 py-1.5 text-xs font-medium transition-colors ${
+                rulesDownloaded
+                  ? "bg-[#10c22b]/10 text-[#10c22b]"
+                  : "bg-[#0a0a0a] text-white hover:opacity-80"
+              }`}
+            >
+              {rulesDownloaded ? <Check className="size-3" /> : <Download className="size-3" />}
+              {rulesDownloaded ? "Downloaded" : "Download .acost-rules.md"}
+            </button>
+            <button
+              onClick={() => handleCopy(RULES_FILE, "rules")}
+              className="flex items-center gap-1.5 rounded-[9999px] border border-[#e5e5e5] bg-white px-3 py-1.5 text-xs font-medium text-[#737373] hover:text-[#0a0a0a] transition-colors"
+            >
+              {copied === "rules" ? <Check className="size-3 text-[#10c22b]" /> : <Copy className="size-3" />}
+              {copied === "rules" ? "Copied" : "Copy contents"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-[14px] border border-[#e5e5e5] bg-white p-5">
+        <div className="mb-4">
+          <p className="text-sm font-semibold text-[#000000]">API Reference</p>
+          <p className="text-xs text-[#737373]">
+            Send a <code className="font-mono">POST /track</code> request after every AI call — fire-and-forget, never block your main flow
+          </p>
+        </div>
+
+        <div className="mb-4 flex flex-col gap-2 rounded-[10px] border border-[#e5e5e5] bg-[#f2f2f2] p-3">
+          <p className="text-[11px] font-medium text-[#0a0a0a]">Payload fields</p>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+            {[
+              ["feature", "string", "Product feature name (e.g. pdf-chat)"],
+              ["model", "string", "Model used (e.g. gpt-4o)"],
+              ["provider", "string", "openai · anthropic · google · openrouter"],
+              ["input_tokens", "number", "From the API response usage object"],
+              ["output_tokens", "number", "From the API response usage object"],
+              ["latency_ms", "number", "Wall-clock time of the AI call"],
+              ["user_id", "string?", "End-user identifier (optional)"],
+            ].map(([field, type, desc]) => (
+              <div key={field} className="flex items-baseline gap-1.5">
+                <code className="text-[10px] font-mono font-semibold text-[#0a0a0a] shrink-0">{field}</code>
+                <span className="text-[10px] font-mono text-[#a1a1a1] shrink-0">{type}</span>
+                <span className="text-[10px] text-[#737373]">{desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-3 flex gap-1 rounded-[8px] border border-[#e5e5e5] p-0.5 w-fit">
+          {API_TABS.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setApiTab(tab)}
+              className={`rounded-[6px] px-3 py-1 text-xs font-medium transition-colors ${
+                apiTab === tab ? "bg-[#000000] text-white" : "text-[#737373] hover:text-[#0a0a0a]"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="relative rounded-[10px] border border-[#e5e5e5] bg-[#0a0a0a] p-5">
+          <button
+            onClick={() => handleCopy(API_EXAMPLES[apiTab], "snippet")}
+            className="absolute top-3 right-3 flex items-center gap-1 rounded-[6px] border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/60 hover:text-white transition-colors"
+          >
+            {copied === "snippet" ? <Check className="size-3 text-[#10c22b]" /> : <Copy className="size-3" />}
+            {copied === "snippet" ? "Copied" : "Copy"}
+          </button>
+          <pre className="overflow-x-auto text-[12px] font-mono text-white/80 leading-relaxed">
+            {API_EXAMPLES[apiTab]}
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
