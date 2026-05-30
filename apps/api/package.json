@@ -1,0 +1,23 @@
+{
+  "name": "@nalar-acost/api",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "elysia": "^1.2.0",
+    "@elysiajs/cors": "^1.2.0",
+    "@elysiajs/swagger": "^1.2.0",
+    "drizzle-orm": "^0.41.0",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "tsx": "^4.19.2",
+    "drizzle-kit": "^0.30.0",
+    "@types/node": "^22.0.0"
+  }
+}
