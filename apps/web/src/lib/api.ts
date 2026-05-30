@@ -140,7 +140,7 @@ export const metricsApi = {
     if (error) throw error
     
     // Aggregate by feature
-    const aggregated = data.reduce((acc: any, curr) => {
+    const aggregated = data.reduce<Record<string, { feature: string; cost: number; requests: number }>>((acc, curr) => {
       if (!acc[curr.feature]) {
         acc[curr.feature] = { feature: curr.feature, cost: 0, requests: 0 }
       }

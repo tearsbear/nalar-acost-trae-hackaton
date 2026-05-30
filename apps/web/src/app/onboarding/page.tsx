@@ -12,31 +12,31 @@ const API_TABS = ["cURL", "TypeScript", "Python", "PHP"]
 function getApiExamples(apiKey: string) {
   return {
     cURL: `curl -X POST ${BASE_URL}/track \\
-  -H "Authorization: Bearer ${apiKey}" \\
+  -H "X-API-Key: ${apiKey}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "feature": "pdf-chat",
-    "user_id": "usr_123",
+    "userId": "usr_123",
     "model": "gpt-4o",
     "provider": "openai",
-    "input_tokens": 1240,
-    "output_tokens": 380,
-    "latency_ms": 1340
+    "inputTokens": 1240,
+    "outputTokens": 380,
+    "latency": 1340
   }'`,
     TypeScript: `const res = await fetch("${BASE_URL}/track", {
   method: "POST",
   headers: {
-    "Authorization": "Bearer ${apiKey}",
+    "X-API-Key": "${apiKey}",
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
     feature: "pdf-chat",
-    user_id: user.id,
+    userId: user.id,
     model: "gpt-4o",
     provider: "openai",
-    input_tokens: usage.input_tokens,
-    output_tokens: usage.output_tokens,
-    latency_ms: Date.now() - startTime,
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    latency: Date.now() - startTime,
   }),
 })`,
     Python: `import httpx
@@ -44,30 +44,30 @@ function getApiExamples(apiKey: string) {
 httpx.post(
     "${BASE_URL}/track",
     headers={
-        "Authorization": "Bearer ${apiKey}",
+        "X-API-Key": "${apiKey}",
         "Content-Type": "application/json",
     },
     json={
         "feature": "pdf-chat",
-        "user_id": user.id,
+        "userId": user.id,
         "model": "gpt-4o",
         "provider": "openai",
-        "input_tokens": usage.input_tokens,
-        "output_tokens": usage.output_tokens,
-        "latency_ms": latency_ms,
+        "inputTokens": usage.input_tokens,
+        "outputTokens": usage.output_tokens,
+        "latency": latency_ms,
     },
 )`,
     PHP: `Http::withHeaders([
-    'Authorization' => 'Bearer ${apiKey}',
+    'X-API-Key' => '${apiKey}',
     'Content-Type'  => 'application/json',
 ])->post('${BASE_URL}/track', [
     'feature'       => 'pdf-chat',
-    'user_id'       => $user->id,
+    'userId'        => $user->id,
     'model'         => 'gpt-4o',
     'provider'      => 'openai',
-    'input_tokens'  => $usage->input_tokens,
-    'output_tokens' => $usage->output_tokens,
-    'latency_ms'    => $latencyMs,
+    'inputTokens'   => $usage->input_tokens,
+    'outputTokens'  => $usage->output_tokens,
+    'latency'       => $latencyMs,
 ]);`,
   }
 }
@@ -81,17 +81,17 @@ function getRulesFile(apiKey: string) {
 Acost tracks AI API costs per feature and user.
 After every AI API call in this project, send a tracking event to:
   POST ${BASE_URL}/track
-  Authorization: Bearer ${apiKey}
+  X-API-Key: ${apiKey}
 
 ## Tracking payload schema
 {
   "feature":       string,   // name of the feature making the call (e.g. "pdf-chat")
-  "user_id":       string,   // end-user identifier (optional but recommended)
-  "model":         string,   // model name (e.g. "gpt-4o", "claude-3-5-sonnet")
-  "provider":      string,   // "openai" | "anthropic" | "google" | "openrouter" | ...
-  "input_tokens":  number,   // from the API response usage object
-  "output_tokens": number,   // from the API response usage object
-  "latency_ms":    number    // wall-clock time of the AI call in milliseconds
+  "userId":        string,   // end-user identifier (optional but recommended)
+  "model":         string,   // required model name (e.g. "gpt-4o", "claude-3-5-sonnet")
+  "provider":      string,   // required provider ("openai" | "anthropic" | "google" | ...)
+  "inputTokens":   number,   // from the API response usage object
+  "outputTokens":  number,   // from the API response usage object
+  "latency":       number    // wall-clock time of the AI call in milliseconds
 }
 
 ## Rules for AI editors
@@ -109,8 +109,8 @@ OpenRouter, Replicate, ElevenLabs, etc.), ALWAYS:
 3. After the call, fire a non-blocking tracking request:
    fetch("${BASE_URL}/track", {
      method: "POST",
-     headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
-     body: JSON.stringify({ feature, user_id, model, provider, input_tokens, output_tokens, latency_ms })
+     headers: { "X-API-Key": "${apiKey}", "Content-Type": "application/json" },
+     body: JSON.stringify({ feature, userId, model, provider, inputTokens, outputTokens, latency })
    }).catch(() => {}) // never block the main flow
 
 4. Never await the tracking call — it must be fire-and-forget.
@@ -122,13 +122,13 @@ const start = Date.now()
 const response = await openai.chat.completions.create({ model: "gpt-4o", messages })
 fetch("${BASE_URL}/track", {
   method: "POST",
-  headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
+  headers: { "X-API-Key": "${apiKey}", "Content-Type": "application/json" },
   body: JSON.stringify({
-    feature: "pdf-chat", user_id: userId,
+    feature: "pdf-chat", userId,
     model: "gpt-4o", provider: "openai",
-    input_tokens: response.usage.prompt_tokens,
-    output_tokens: response.usage.completion_tokens,
-    latency_ms: Date.now() - start,
+    inputTokens: response.usage.prompt_tokens,
+    outputTokens: response.usage.completion_tokens,
+    latency: Date.now() - start,
   }),
 }).catch(() => {})
 
@@ -137,13 +137,13 @@ const start = Date.now()
 const response = await anthropic.messages.create({ model: "claude-3-5-sonnet-20241022", messages })
 fetch("${BASE_URL}/track", {
   method: "POST",
-  headers: { "Authorization": "Bearer ${apiKey}", "Content-Type": "application/json" },
+  headers: { "X-API-Key": "${apiKey}", "Content-Type": "application/json" },
   body: JSON.stringify({
-    feature: "ai-summarizer", user_id: userId,
+    feature: "ai-summarizer", userId,
     model: "claude-3-5-sonnet", provider: "anthropic",
-    input_tokens: response.usage.input_tokens,
-    output_tokens: response.usage.output_tokens,
-    latency_ms: Date.now() - start,
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+    latency: Date.now() - start,
   }),
 }).catch(() => {})
 `
